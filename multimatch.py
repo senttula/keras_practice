@@ -153,6 +153,5 @@ for i in range(filters):
     plt.subplot(201+filters*5+i)
     plt.imshow(ww, cmap='gray')
     plt.axis('off')
-plt.show('filters.png')
 plt.savefig('filters.png')
 
