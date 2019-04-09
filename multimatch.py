@@ -16,6 +16,8 @@ from keras.datasets import mnist
 padding_size = 3
 filters = 8
 
+padding_per_dimension = padding_size*2+1
+
 (x_train, _), (x_test, _) = mnist.load_data()
 x_data = np.concatenate((x_train, x_test), axis=0)
 x_data = x_data.astype(np.float32) / 255
@@ -44,14 +46,14 @@ class mse_layer(Layer):
     def call(self, inputs):
         # repeat dimensions to match each biasfilter to each window
         inputs = tf.tile(inputs, [1, 1, 1, 1, filters])
-        biases = tf.tile(K.expand_dims(self.bias, -2), [1, 1, (padding_size*2)**2, 1])
+        biases = tf.tile(K.expand_dims(self.bias, -2), [1, 1, padding_per_dimension**2, 1])
 
         output = K.mean(K.square(inputs - biases), axis=[1, 2])
 
         return output
 
     def compute_output_shape(self, input_shape):
-        return (input_shape[0], padding_size*2, self.filters)
+        return (input_shape[0], padding_per_dimension**2, self.filters)
 
 
 class min_layer(Layer):
@@ -85,9 +87,9 @@ def sliding_window(inputs):
     # Using tf pad insted of keras pad gives us the mode options
     target = tf.pad(inputs, pattern, mode="SYMMETRIC")
 
-    start_indices = K.arange(padding_size * 2)
-    repeated_elements = K.repeat_elements(start_indices, padding_size*2, axis=0)
-    repeated_range = tf.tile(start_indices, [padding_size*2])
+    start_indices = K.arange(padding_per_dimension)
+    repeated_elements = K.repeat_elements(start_indices, padding_per_dimension, axis=0)
+    repeated_range = tf.tile(start_indices, [padding_per_dimension])
 
     repeated_elements = K.expand_dims(repeated_elements)
     repeated_range = K.expand_dims(repeated_range)
@@ -102,7 +104,7 @@ def sliding_window(inputs):
 
     # reshape for shape: (samples, imrows, imcolumns, mse_score, 1)
     windows = K.permute_dimensions(windows, (1, 2, 3, 0, 4))
-    windows = Reshape((size, size, (padding_size * 2) ** 2, 1))(windows)
+    windows = Reshape((size, size, (padding_per_dimension) ** 2, 1))(windows)
     return windows
 
 
@@ -113,11 +115,12 @@ layer = mse_layer(filters)(windows)
 
 layer = min_layer(1)(layer)  # global min over windows
 
-# residual pass, forces every filter to update a bit
-residual = Lambda(lambda x: K.sum(x, axis=1, keepdims=True)/20)(layer)
+if filters > 1:
+    # residual pass, forces every filter to update a bit
+    residual = Lambda(lambda x: K.sum(x, axis=1, keepdims=True)/20)(layer)
 
-layer = min_layer(1, keepdims=True)(layer)
-layer = Add()([layer, residual])
+    layer = min_layer(1, keepdims=True)(layer)
+    layer = Add()([layer, residual])
 
 model = Model(inputs, layer)
 model.summary()
